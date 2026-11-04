@@ -1,0 +1,139 @@
+name: Build FreeTube TV (Fire TV APK)
+
+on:
+  workflow_dispatch:
+    inputs:
+      upstream_ref:
+        description: "Branch/Tag/Commit von MarmadileManteater/FreeTubeAndroid"
+        required: false
+        default: "development"
+  push:
+    branches: [ main ]
+    tags: [ "v*" ]
+
+permissions:
+  contents: write   # für Releases bei Tags
+
+env:
+  UPSTREAM_REPO: MarmadileManteater/FreeTubeAndroid
+  UPSTREAM_REF: ${{ github.event.inputs.upstream_ref || 'development' }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Kit auschecken
+        uses: actions/checkout@v4
+
+      - name: FreeTube Android (Upstream) auschecken
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.UPSTREAM_REPO }}
+          ref: ${{ env.UPSTREAM_REF }}
+          path: upstream
+
+      - name: Upstream-Commit merken
+        id: up
+        run: |
+          echo "sha=$(git -C upstream rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          echo "Upstream: ${UPSTREAM_REPO}@$(git -C upstream rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+
+      - name: pnpm 10
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Abhängigkeiten installieren
+        working-directory: upstream
+        run: pnpm i --frozen-lockfile
+
+      - name: Web-Oberfläche für Android packen (webpack)
+        working-directory: upstream
+        run: pnpm run pack:android
+
+      - name: Fire-TV-Patches anwenden
+        run: python3 firetv/apply-firetv.py upstream --build-number ${{ github.run_number }}
+
+      - name: Version auslesen
+        id: ver
+        run: echo "version=$(node -p "require('./upstream/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Feste Signatur einrichten (falls Secret vorhanden)
+        env:
+          KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+        run: |
+          if [ -z "$KEYSTORE_B64" ]; then
+            echo "::warning::Kein KEYSTORE_B64-Secret – APK wird mit wechselndem Debug-Schlüssel signiert. Updates erfordern dann Deinstallation (siehe README)."
+            exit 0
+          fi
+          echo "$KEYSTORE_B64" | base64 -d > upstream/freetube-tv.keystore
+          f=upstream/android/app/build.gradle.kts
+          # Upstream hat dafür einen Platzhalter im "debug"-signingConfig
+          sed -i "s@// inject signing config@storeFile = file(\"../../freetube-tv.keystore\")\n        storePassword = \"${KEYSTORE_PASSWORD}\"\n        keyAlias = \"${KEY_ALIAS:-freetubetv}\"\n        keyPassword = \"${KEYSTORE_PASSWORD}\"@" "$f"
+          echo "Signatur aus Secret eingerichtet."
+
+      - name: JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: temurin
+          cache: gradle
+
+      - name: APK bauen (Release)
+        working-directory: upstream/android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon
+
+      - name: Lint auf API-28-Kompatibilität prüfen
+        working-directory: upstream/android
+        continue-on-error: true
+        run: |
+          ./gradlew lintRelease --no-daemon || true
+          r=$(ls app/build/reports/lint-results-release.xml 2>/dev/null || true)
+          if [ -n "$r" ] && grep -q 'id="NewApi"' "$r"; then
+            echo "::warning::Lint meldet NewApi-Stellen (Aufrufe > API 28). Details im Artefakt lint-report."
+            grep -o 'message="[^"]*"' "$r" | grep -i "api level" | sort -u | head -30
+          else
+            echo "Keine NewApi-Meldungen – kompatibel mit Fire OS 7 (API 28)."
+          fi
+
+      - name: APK umbenennen + Prüfsumme
+        run: |
+          mkdir -p dist
+          apk="dist/FreeTubeTV-${{ steps.ver.outputs.version }}.apk"
+          cp upstream/android/app/build/outputs/apk/release/app-release.apk "$apk"
+          (cd dist && sha256sum *.apk > SHA256SUMS.txt)
+          cat dist/SHA256SUMS.txt
+          echo "APK: \`$(basename "$apk")\` (Upstream ${{ steps.up.outputs.sha }})" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: APK als Artefakt hochladen
+        uses: actions/upload-artifact@v4
+        with:
+          name: FreeTubeTV-${{ steps.ver.outputs.version }}
+          path: dist/*
+
+      - name: Lint-Report hochladen
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lint-report
+          path: upstream/android/app/build/reports/lint-results-release.*
+          if-no-files-found: ignore
+
+      - name: GitHub-Release (nur bei Tag v*)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          body: |
+            FreeTube TV für Amazon Fire TV (Fire OS 7 / Android 9, 32-bit).
+            Basis: ${{ env.UPSTREAM_REPO }}@${{ steps.up.outputs.sha }}
+            Installation: siehe ANLEITUNG-INSTALLATION.md

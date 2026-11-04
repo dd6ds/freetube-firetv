@@ -1,0 +1,6 @@
+*.keystore
+*.keystore.b64
+*.jks
+*.apk
+upstream/
+dist/
