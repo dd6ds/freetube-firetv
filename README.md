@@ -17,6 +17,7 @@ bedienbar ist.
 | `touchscreen required=false`, `largeHeap` | Fire TV hat keinen Touchscreen; mehr Heap bei 1 GB RAM |
 | D-Pad-Navigation (`firetv/firetv-dpad.js`) | Pfeiltasten bewegen einen gelben Fokusrahmen, OK klickt, Medientasten steuern das Video, Menü → Suche |
 | Fernbedienung nativ in `MainActivity.dispatchKeyEvent` abgefangen | funktioniert unabhängig vom WebView-Fokus |
+| Automatisches Vollbild | Video startet beim Anklicken direkt im Vollbild (echte Fullscreen-API, sonst CSS-Vollbild) |
 | Zurück-Taste | Vollbild verlassen → Seitenverlauf → auf der Startseite 2× Zurück = App beenden (statt nur Hintergrund) |
 | Upstream = neuestes Release-Tag (z. B. 0.25.3.1) | stabile Version statt Entwicklungszweig; Versionsnummer = Upstream-Release |
 | Eigene App-ID `io.freetubeapp.freetube.firetv`, Name „FreeTube TV" | kollidiert nicht mit einer normalen FreeTube-Android-Installation |

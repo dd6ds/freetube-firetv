@@ -81,8 +81,19 @@ Startleiste → „Alle Apps"). Mit **Menü-Taste (≡) → Verschieben** kannst
 | ⏪ / ⏩ | 10 Sekunden zurück / vor |
 | Links/Rechts auf dem Player | 5 Sekunden spulen (FreeTube-Kurzbefehl) |
 
-Für Vollbild: Player fokussieren und die Vollbild-Schaltfläche in der Player-Leiste
-anklicken. Im Vollbild gehen alle Tasten direkt an den Player.
+**Automatisches Vollbild:** Wenn du ein Video anklickst, startet es automatisch im Vollbild.
+Im Vollbild gilt:
+
+| Taste | Funktion |
+|---|---|
+| OK oder ⏯ | Play/Pause |
+| Links / Rechts | 5 Sekunden spulen |
+| ⏪ / ⏩ | 10 Sekunden spulen |
+| Hoch / Runter | Bedienleiste einblenden |
+| Zurück | Vollbild verlassen → Video-Seite (Beschreibung, Kommentare, Empfehlungen) |
+
+Ein zweites Zurück führt zur vorherigen Liste. Lautstärke regelst du wie gewohnt am Fernseher bzw.
+mit den Lautstärketasten der Fernbedienung.
 
 ---
 

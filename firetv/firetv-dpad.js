@@ -40,6 +40,13 @@
       '*:focus{outline:4px solid #ffcc00 !important;outline-offset:2px !important;' +
       'box-shadow:0 0 0 6px rgba(255,204,0,.35) !important;}' +
       '.ftVideoPlayer:focus{outline-offset:-4px !important;}' +
+      // "TV-Vollbild": Player füllt den ganzen Bildschirm (ohne Fullscreen-API)
+      '.ft-tv-fs{position:fixed !important;top:0 !important;left:0 !important;right:0 !important;bottom:0 !important;' +
+      'width:100vw !important;height:100vh !important;max-width:none !important;max-height:none !important;' +
+      'margin:0 !important;z-index:2147483647 !important;background:#000 !important;border-radius:0 !important;}' +
+      '.ft-tv-fs video{width:100% !important;height:100% !important;object-fit:contain !important;}' +
+      '.ft-tv-fs:focus{outline:none !important;box-shadow:none !important;}' +
+      'html.ft-tv-fs-active,html.ft-tv-fs-active body{overflow:hidden !important;}' +
       'html{scroll-behavior:auto !important;}'
     ;(document.head || document.documentElement).appendChild(style)
   }
@@ -75,8 +82,85 @@
     return !!(el && el.closest && el.closest(PLAYER))
   }
 
-  function isFullscreen () {
+  function isRealFullscreen () {
     return !!(document.fullscreenElement || document.webkitFullscreenElement)
+  }
+  function isPseudoFullscreen () {
+    return !!document.querySelector('.ft-tv-fs')
+  }
+  function isFullscreen () {
+    return isRealFullscreen() || isPseudoFullscreen()
+  }
+
+  // ---- Automatisches Vollbild beim Öffnen eines Videos ----------------------
+  var AUTO_FS_KEY = 'ftTvAutoFullscreen'   // localStorage: '0' = aus
+  var autoFsDoneFor = null                 // Video-ID, für die schon umgeschaltet wurde
+
+  var autoFsMem = null                     // Rückfall, falls localStorage fehlt
+  function autoFsEnabled () {
+    if (autoFsMem !== null) return autoFsMem
+    try { return localStorage.getItem(AUTO_FS_KEY) !== '0' } catch (e) { return true }
+  }
+
+  function watchId () {
+    var m = /^#\/watch\/([^?/&]+)/.exec(location.hash || '')
+    return m ? m[1] : null
+  }
+
+  function enterPseudoFs (player) {
+    player.classList.add('ft-tv-fs')
+    document.documentElement.classList.add('ft-tv-fs-active')
+    focusEl(player)
+    // Player-Größe neu berechnen lassen (Shaka-UI)
+    window.dispatchEvent(new Event('resize'))
+  }
+
+  function exitPseudoFs () {
+    var els = document.querySelectorAll('.ft-tv-fs')
+    for (var i = 0; i < els.length; i++) els[i].classList.remove('ft-tv-fs')
+    document.documentElement.classList.remove('ft-tv-fs-active')
+    window.dispatchEvent(new Event('resize'))
+  }
+
+  function enterFullscreen (player) {
+    if (isFullscreen()) return
+    var req = player.requestFullscreen || player.webkitRequestFullscreen
+    if (!req) { enterPseudoFs(player); return }
+    try {
+      var p = req.call(player)
+      if (p && typeof p.then === 'function') {
+        p.catch(function () { enterPseudoFs(player) })
+      } else {
+        // alte API ohne Promise: kurz prüfen, ob es geklappt hat
+        setTimeout(function () { if (!isRealFullscreen()) enterPseudoFs(player) }, 300)
+      }
+    } catch (e) {
+      enterPseudoFs(player)
+    }
+  }
+
+  function showControls () {
+    var player = document.querySelector(PLAYER)
+    if (!player) return
+    var r = player.getBoundingClientRect()
+    var opts = { bubbles: true, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 }
+    player.dispatchEvent(new MouseEvent('mousemove', opts))
+  }
+
+  function autoFsTick () {
+    var id = watchId()
+    if (!id) {
+      // Video-Seite verlassen -> TV-Vollbild aufräumen
+      if (isPseudoFullscreen()) exitPseudoFs()
+      autoFsDoneFor = null
+      return
+    }
+    if (!autoFsEnabled() || autoFsDoneFor === id) return
+    var player = document.querySelector(PLAYER)
+    var v = player && player.querySelector('video')
+    if (!v || v.readyState < 1) return     // erst wenn das Video wirklich lädt
+    autoFsDoneFor = id
+    enterFullscreen(player)
   }
 
   function activeEl () {
@@ -237,10 +321,12 @@
         }
       }
 
-      // Vollbild-Video: Pfeile an den Player (spulen/Lautstärke), OK = Play/Pause
+      // Vollbild-Video: Links/Rechts spulen, OK = Play/Pause,
+      // Hoch/Runter blendet die Bedienleiste ein (Lautstärke macht der Fernseher)
       if (isFullscreen()) {
         if (name === 'enter') togglePlay()
-        else synthKey(name)
+        else if (name === 'left' || name === 'right') synthKey(name)
+        else showControls()
         return 'ok'
       }
 
@@ -290,7 +376,11 @@
     },
 
     back: function () {
-      if (isFullscreen()) {
+      if (isPseudoFullscreen()) {
+        exitPseudoFs()
+        return 'handled'
+      }
+      if (isRealFullscreen()) {
         var exit = document.exitFullscreen || document.webkitExitFullscreen
         if (exit) exit.call(document)
         return 'handled'
@@ -305,7 +395,15 @@
     }
   }
 
+  // Automatisches Vollbild ein-/ausschalten (aus Kotlin oder Konsole aufrufbar)
+  window.__ftTv.setAutoFullscreen = function (on) {
+    autoFsMem = !!on
+    try { localStorage.setItem(AUTO_FS_KEY, on ? '1' : '0') } catch (e) {}
+    return on ? 'on' : 'off'
+  }
+
   addStyle()
+  setInterval(autoFsTick, 500)
   // Beim Start etwas sinnvolles fokussieren, damit die Fernbedienung sofort greift
   setTimeout(function () {
     if (!activeEl()) {
