@@ -74,9 +74,9 @@ Startleiste → „Alle Apps"). Mit **Menü-Taste (≡) → Verschieben** kannst
 | Taste | Funktion |
 |---|---|
 | Pfeiltasten | Fokus (gelber Rahmen) zum nächsten Element bewegen |
-| OK | Anklicken / Video öffnen |
+| OK | Anklicken / Video öffnen; auf einem Textfeld öffnet sich ein Eingabefenster mit Bildschirmtastatur |
 | Zurück | Vollbild/Textfeld verlassen → vorherige Seite → auf der Startseite **2× Zurück = App beenden** |
-| ≡ Menü | Suchfeld fokussieren (Bildschirmtastatur öffnet sich mit OK) |
+| ≡ Menü | Sucheingabe öffnen (Tastatur erscheint, „Suchen“ startet die Suche direkt) |
 | ⏯ Play/Pause | Video starten/anhalten |
 | ⏪ / ⏩ | 10 Sekunden zurück / vor |
 | Links/Rechts auf dem Player | 5 Sekunden spulen (FreeTube-Kurzbefehl) |

@@ -11,7 +11,9 @@
  *
  * Rückgabewerte an Kotlin:
  *   'ok'      – erledigt
- *   'input'   – ein Textfeld wurde fokussiert -> Kotlin öffnet die Tastatur
+ *   'edit:{json}' – Textfeld soll bearbeitet werden -> Kotlin zeigt einen
+ *               nativen Eingabedialog (dort erscheint die Fire-TV-Tastatur
+ *               zuverlässig) und ruft danach window.__ftTv.setText(text) auf
  *   'handled' – (back) Zurück wurde hier verarbeitet (z. B. Vollbild verlassen)
  *   'none'    – (back) nichts zu tun, Kotlin macht normales Zurück
  */
@@ -184,11 +186,20 @@
     target.dispatchEvent(ev)
   }
 
+  var editEl = null
+  function editPayload (el) {
+    editEl = el
+    focusEl(el)
+    var label = el.getAttribute('placeholder') || el.getAttribute('aria-label') || ''
+    return 'edit:' + JSON.stringify({
+      v: el.value || '',
+      p: label,
+      t: (el.type || 'text').toLowerCase()
+    })
+  }
+
   function activate (el) {
-    if (isTextInput(el)) {
-      focusEl(el)
-      return 'input'
-    }
+    if (isTextInput(el)) return editPayload(el)
     if (el.tagName === 'SELECT') {
       // Dropdown ohne Maus: OK schaltet zur nächsten Option weiter
       var n = el.options.length
@@ -221,7 +232,7 @@
         case 'forward': seek(10); return 'ok'
         case 'menu': {
           var search = document.querySelector('.searchInput input, input[type="search"]')
-          if (search) { focusEl(search); return 'input' }
+          if (search) return editPayload(search)
           return 'ok'
         }
       }
@@ -254,6 +265,27 @@
       }
 
       move(name)
+      return 'ok'
+    },
+
+    // Text aus dem nativen Dialog übernehmen; submit = Enter auslösen (Suche starten)
+    setText: function (text, submit) {
+      var el = editEl
+      if (!el || !document.contains(el)) return 'none'
+      try {
+        // nativer Setter, damit auch Frameworks (Vue) die Änderung sicher sehen
+        var proto = el.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype
+        var setter = Object.getOwnPropertyDescriptor(proto, 'value').set
+        setter.call(el, text)
+      } catch (e) { el.value = text }
+      el.dispatchEvent(new Event('input', { bubbles: true }))
+      el.dispatchEvent(new Event('change', { bubbles: true }))
+      focusEl(el)
+      if (submit) {
+        var ev = new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true, cancelable: true })
+        try { Object.defineProperty(ev, 'keyCode', { get: function () { return 13 } }) } catch (e) {}
+        el.dispatchEvent(ev)
+      }
       return 'ok'
     },
 

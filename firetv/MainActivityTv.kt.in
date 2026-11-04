@@ -41,24 +41,87 @@
 
   private fun tvSendKey(name: String, retry: Boolean) {
     webView.evaluateJavascript("window.__ftTv ? window.__ftTv.key('$name') : 'missing'") { result ->
-      if (result == "\"missing\"") {
+      val r = tvDecode(result)
+      if (r == "missing") {
         // Skript (noch) nicht in der Seite -> einspielen und Taste wiederholen
         if (retry) {
           webView.evaluateJavascript(tvScript) { _ -> tvSendKey(name, false) }
         }
-      } else if (result == "\"input\"") {
-        tvShowKeyboard()
+      } else if (r != null && r.startsWith("edit:")) {
+        try {
+          val o = org.json.JSONObject(r.substring(5))
+          tvEditText(o.optString("v"), o.optString("p"), o.optString("t") == "password")
+        } catch (e: Exception) {
+          android.util.Log.w("FreeTubeTV", "Eingabedaten unlesbar: $r", e)
+        }
       }
     }
   }
 
-  private fun tvShowKeyboard() {
-    webView.requestFocus()
-    val imm = getSystemService(android.content.Context.INPUT_METHOD_SERVICE)
-      as android.view.inputmethod.InputMethodManager
-    webView.postDelayed({
-      imm.showSoftInput(webView, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
-    }, 150)
+  // evaluateJavascript liefert JSON (z. B. "\"ok\"") -> in einen normalen String wandeln
+  private fun tvDecode(result: String?): String? {
+    if (result == null) return null
+    return try {
+      org.json.JSONTokener(result).nextValue() as? String
+    } catch (e: Exception) {
+      null
+    }
+  }
+
+  // Natives Eingabefenster: hier öffnet sich die Fire-TV-Tastatur zuverlässig
+  private fun tvEditText(value: String, hint: String, password: Boolean) {
+    val input = android.widget.EditText(this)
+    input.setText(value)
+    input.setSelection(value.length)
+    input.hint = hint
+    input.isSingleLine = true
+    input.imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH
+    input.inputType = if (password) {
+      android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+    } else {
+      android.text.InputType.TYPE_CLASS_TEXT
+    }
+
+    var done = false
+    val dialog = android.app.AlertDialog.Builder(this)
+      .setTitle(if (hint.isNotEmpty()) hint else "Eingabe")
+      .setView(input)
+      .setPositiveButton("Suchen / OK") { _, _ ->
+        if (!done) {
+          done = true
+          tvApplyText(input.text.toString())
+        }
+      }
+      .setNegativeButton("Abbrechen", null)
+      .create()
+
+    // "Fertig"/"Suchen" auf der Bildschirmtastatur übernimmt direkt
+    input.setOnEditorActionListener { _, _, _ ->
+      if (!done) {
+        done = true
+        tvApplyText(input.text.toString())
+        dialog.dismiss()
+      }
+      true
+    }
+
+    dialog.window?.setSoftInputMode(
+      android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE
+    )
+    dialog.setOnShowListener {
+      input.requestFocus()
+      val imm = getSystemService(android.content.Context.INPUT_METHOD_SERVICE)
+        as android.view.inputmethod.InputMethodManager
+      input.postDelayed({
+        imm.showSoftInput(input, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+      }, 200)
+    }
+    dialog.show()
+  }
+
+  private fun tvApplyText(text: String) {
+    val js = "window.__ftTv && window.__ftTv.setText(" + org.json.JSONObject.quote(text) + ", true)"
+    webView.evaluateJavascript(js, null)
   }
 
   override fun onBack() {
