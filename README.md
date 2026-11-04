@@ -16,7 +16,9 @@ bedienbar ist.
 | `LEANBACK_LAUNCHER` + 320×180-Banner | App erscheint im Fire-TV-Launcher unter „Apps" |
 | `touchscreen required=false`, `largeHeap` | Fire TV hat keinen Touchscreen; mehr Heap bei 1 GB RAM |
 | D-Pad-Navigation (`firetv/firetv-dpad.js`) | Pfeiltasten bewegen einen gelben Fokusrahmen, OK klickt, Medientasten steuern das Video, Menü → Suche |
-| Zurück-Taste | verlässt zuerst den Vollbildmodus, dann Seitenverlauf |
+| Fernbedienung nativ in `MainActivity.dispatchKeyEvent` abgefangen | funktioniert unabhängig vom WebView-Fokus |
+| Zurück-Taste | Vollbild verlassen → Seitenverlauf → auf der Startseite 2× Zurück = App beenden (statt nur Hintergrund) |
+| Upstream = neuestes Release-Tag (z. B. 0.25.3.1) | stabile Version statt Entwicklungszweig; Versionsnummer = Upstream-Release |
 | Eigene App-ID `io.freetubeapp.freetube.firetv`, Name „FreeTube TV" | kollidiert nicht mit einer normalen FreeTube-Android-Installation |
 
 Der Upstream-Code wird **nicht** ins Repo kopiert; der Workflow holt ihn bei jedem Build frisch
@@ -43,14 +45,14 @@ und wendet `firetv/apply-firetv.py` an. So bekommst du FreeTube-Updates durch ei
    ```
    Keystore sicher aufheben, **nicht committen** (steht in `.gitignore`).
 3. Der Push startet den Build automatisch (**Actions → Build FreeTube TV**), Dauer ca. 8–12 min.
-   Manuell: *Run workflow* – optional mit anderem Upstream-Branch/-Tag.
+   Manuell: *Run workflow* – leer lassen = neuestes Upstream-Release (z. B. 0.25.3.1), oder ein Tag/Branch eintragen.
 4. Ergebnis:
    - **Artefakt** `FreeTubeTV-<version>` im Workflow-Lauf (ZIP mit APK + SHA256SUMS) – Download nur eingeloggt.
-   - **Release**: mit einem Tag wird zusätzlich ein GitHub-Release mit der APK erstellt –
-     das brauchst du für die Installation per Downloader-App direkt am Stick:
-     ```bash
-     git tag v0.25.3-1 && git push --tags
-     ```
+   - **Release**: jeder Lauf legt automatisch ein GitHub-Release unter
+     `https://github.com/dd6ds/freetube-firetv/releases` an (Tag `v<version>-tv<Build-Nr.>`), mit
+     `FreeTubeTV-<version>.apk` und `FreeTubeTV-latest.apk`. Feste Adresse der neuesten APK:
+     `https://github.com/dd6ds/freetube-firetv/releases/latest/download/FreeTubeTV-latest.apk`
+   - Voraussetzung: **Settings → Actions → General → Workflow permissions → „Read and write permissions“**.
 
 ## Installation auf dem Fire TV Stick
 
@@ -61,9 +63,9 @@ und wendet `firetv/apply-firetv.py` an. So bekommst du FreeTube-Updates durch ei
 Mit Android SDK + JDK 17 + Node 22 + pnpm 10:
 
 ```bash
-git clone https://github.com/MarmadileManteater/FreeTubeAndroid upstream
+git clone -b 0.25.3.1 https://github.com/MarmadileManteater/FreeTubeAndroid upstream
 cd upstream && pnpm i && pnpm run pack:android && cd ..
-python3 firetv/apply-firetv.py upstream --build-number 1   # NACH dem pack-Schritt!
+python3 firetv/apply-firetv.py upstream --version 0.25.3.1   # NACH dem pack-Schritt!
 cd upstream/android && ./gradlew assembleRelease
 # → app/build/outputs/apk/release/app-release.apk
 ```
@@ -85,7 +87,8 @@ cd upstream/android && ./gradlew assembleRelease
 ```
 .github/workflows/build-firetv.yml   CI: Upstream holen → packen → patchen → APK
 firetv/apply-firetv.py               alle Fire-TV-Änderungen (idempotent)
-firetv/firetv-dpad.js                Fernbedienungs-Navigation (wird in die WebView injiziert)
+firetv/firetv-dpad.js                Fernbedienungs-Navigation (window.__ftTv, in die WebView injiziert)
+firetv/MainActivityTv.kt.in          nativer Tasten-Abgriff + Zurück/Beenden (wird in MainActivity eingesetzt)
 firetv/res/firetv_banner.png         Launcher-Banner 320×180
 scripts/make-keystore.sh             fester Signaturschlüssel + Secret-Werte
 scripts/install-firetv.sh            Installation/Update per ADB über WLAN

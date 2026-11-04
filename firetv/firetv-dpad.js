@@ -1,23 +1,23 @@
 /*
- * FreeTube Fire TV – D-Pad / Fernbedienungs-Navigation
+ * FreeTube Fire TV – Fernbedienungs-Navigation
  *
- * Wird von FreeTubeWebView nach jedem Seitenaufbau injiziert.
- * Macht die (für Maus/Touch gebaute) FreeTube-Oberfläche mit den
- * Pfeiltasten der Fire-TV-Fernbedienung bedienbar ("spatial navigation").
+ * Die Tasten der Fernbedienung werden NATIV in MainActivity.dispatchKeyEvent
+ * abgefangen und hierher weitergereicht:
+ *     window.__ftTv.key('up'|'down'|'left'|'right'|'enter'|'playpause'|
+ *                       'play'|'pause'|'rewind'|'forward'|'menu')
+ *     window.__ftTv.back()
+ * So funktioniert die Steuerung unabhängig davon, ob die WebView gerade den
+ * Android-Fokus hat.
  *
- *   Pfeiltasten  -> nächstes Element in dieser Richtung fokussieren
- *   OK / Enter   -> Element anklicken
- *   Play/Pause   -> laufendes Video starten/pausieren
- *   << / >>      -> 10 s zurück / vor
- *   Menü (≡)     -> Suchfeld fokussieren
- *
- * Im Video-Player (fokussiert) spulen Links/Rechts, im Vollbild gehen
- * alle Tasten an den Player.
+ * Rückgabewerte an Kotlin:
+ *   'ok'      – erledigt
+ *   'input'   – ein Textfeld wurde fokussiert -> Kotlin öffnet die Tastatur
+ *   'handled' – (back) Zurück wurde hier verarbeitet (z. B. Vollbild verlassen)
+ *   'none'    – (back) nichts zu tun, Kotlin macht normales Zurück
  */
 (function () {
   'use strict'
-  if (window.__ftTvDpad) return
-  window.__ftTvDpad = true
+  if (window.__ftTv) return
 
   var FOCUSABLE = [
     'a[href]', 'button', 'input', 'select', 'textarea', 'summary',
@@ -28,26 +28,27 @@
   ].join(',')
 
   var PLAYER = '.ftVideoPlayer'
-  var FOCUS_COLOR = '#ffcc00'
 
   // ---- Fokus-Rahmen, gut sichtbar aus 3 m Entfernung -----------------------
-  var style = document.createElement('style')
-  style.textContent =
-    '*:focus{outline:4px solid ' + FOCUS_COLOR + ' !important;outline-offset:2px !important;' +
-    'box-shadow:0 0 0 6px rgba(255,204,0,.35) !important;}' +
-    '.ftVideoPlayer:focus{outline-offset:-4px !important;}' +
-    'html{scroll-behavior:auto !important;}'
-  ;(document.head || document.documentElement).appendChild(style)
+  function addStyle () {
+    if (document.getElementById('ft-tv-style')) return
+    var style = document.createElement('style')
+    style.id = 'ft-tv-style'
+    style.textContent =
+      '*:focus{outline:4px solid #ffcc00 !important;outline-offset:2px !important;' +
+      'box-shadow:0 0 0 6px rgba(255,204,0,.35) !important;}' +
+      '.ftVideoPlayer:focus{outline-offset:-4px !important;}' +
+      'html{scroll-behavior:auto !important;}'
+    ;(document.head || document.documentElement).appendChild(style)
+  }
 
   // ---- Hilfsfunktionen ------------------------------------------------------
   function isVisible (el) {
-    if (el.disabled) return false
+    if (!el || el.disabled) return false
     var r = el.getBoundingClientRect()
     if (r.width < 4 || r.height < 4) return false
     var s = window.getComputedStyle(el)
     if (s.visibility === 'hidden' || s.display === 'none' || s.opacity === '0') return false
-    // Element muss auf der Seite liegen (nicht weit außerhalb)
-    if (r.bottom < -5000 || r.top > window.innerHeight + 5000) return false
     return true
   }
 
@@ -68,16 +69,18 @@
     return ['text', 'search', 'email', 'url', 'number', 'password', 'tel'].indexOf(t) !== -1
   }
 
-  function isNativeActivatable (el) {
-    var tag = el.tagName
-    if (tag === 'BUTTON' || tag === 'SUMMARY') return true
-    if (tag === 'A' && el.hasAttribute('href')) return true
-    if (isTextInput(el)) return true
-    return false
-  }
-
   function inPlayer (el) {
     return !!(el && el.closest && el.closest(PLAYER))
+  }
+
+  function isFullscreen () {
+    return !!(document.fullscreenElement || document.webkitFullscreenElement)
+  }
+
+  function activeEl () {
+    var a = document.activeElement
+    if (!a || a === document.body || a === document.documentElement) return null
+    return a
   }
 
   function focusEl (el) {
@@ -122,13 +125,12 @@
   }
 
   function move (dir) {
-    var cur = document.activeElement
-    if (!cur || cur === document.body || cur === document.documentElement) cur = null
+    var cur = activeEl()
     var list = candidates()
-    if (!list.length) return false
+    if (!list.length) return
     if (!cur || !isVisible(cur)) {
       focusEl(firstInViewport(list))
-      return true
+      return
     }
     var cr = cur.getBoundingClientRect()
     var best = null
@@ -141,104 +143,140 @@
     }
     if (best) {
       focusEl(best)
-      return true
+      return
     }
     // Nichts mehr in dieser Richtung: Seite scrollen (lädt ggf. weitere Videos nach)
     if (dir === 'down') window.scrollBy(0, window.innerHeight * 0.6)
     if (dir === 'up') window.scrollBy(0, -window.innerHeight * 0.6)
-    return true
   }
 
   function video () {
     return document.querySelector(PLAYER + ' video') || document.querySelector('video')
   }
 
-  var DIRS = {
-    ArrowLeft: 'left', Left: 'left', 37: 'left',
-    ArrowUp: 'up', Up: 'up', 38: 'up',
-    ArrowRight: 'right', Right: 'right', 39: 'right',
-    ArrowDown: 'down', Down: 'down', 40: 'down'
+  function togglePlay () {
+    var v = video()
+    if (!v) return false
+    if (v.paused) v.play(); else v.pause()
+    return true
   }
 
-  function stop (e) {
-    e.preventDefault()
-    e.stopPropagation()
-    if (e.stopImmediatePropagation) e.stopImmediatePropagation()
+  function seek (delta) {
+    var v = video()
+    if (!v) return
+    var max = isFinite(v.duration) ? v.duration : Infinity
+    v.currentTime = Math.max(0, Math.min(max, v.currentTime + delta))
   }
 
-  window.addEventListener('keydown', function (e) {
-    var key = e.key
-    var code = e.keyCode
-    var active = document.activeElement
-    var v
+  // Simulierter Tastendruck für FreeTubes eigene Player-Kurzbefehle
+  var SYNTH = {
+    left: ['ArrowLeft', 37], right: ['ArrowRight', 39],
+    up: ['ArrowUp', 38], down: ['ArrowDown', 40]
+  }
+  function synthKey (dir) {
+    var k = SYNTH[dir]
+    var target = activeEl() || document.body
+    var ev = new KeyboardEvent('keydown', { key: k[0], code: k[0], bubbles: true, cancelable: true })
+    try {
+      Object.defineProperty(ev, 'keyCode', { get: function () { return k[1] } })
+      Object.defineProperty(ev, 'which', { get: function () { return k[1] } })
+    } catch (e) {}
+    target.dispatchEvent(ev)
+  }
 
-    // ---- Medientasten der Fernbedienung ----
-    if (key === 'MediaPlayPause' || code === 179 || key === 'MediaPlay' || code === 126 ||
-        key === 'MediaPause' || code === 127) {
-      v = video()
-      if (v) {
-        if (key === 'MediaPlay' || code === 126) v.play()
-        else if (key === 'MediaPause' || code === 127) v.pause()
-        else if (v.paused) v.play(); else v.pause()
-        stop(e)
+  function activate (el) {
+    if (isTextInput(el)) {
+      focusEl(el)
+      return 'input'
+    }
+    if (el.tagName === 'SELECT') {
+      // Dropdown ohne Maus: OK schaltet zur nächsten Option weiter
+      var n = el.options.length
+      if (n) {
+        el.selectedIndex = (el.selectedIndex + 1) % n
+        el.dispatchEvent(new Event('input', { bubbles: true }))
+        el.dispatchEvent(new Event('change', { bubbles: true }))
       }
-      return
+      return 'ok'
     }
-    if (key === 'MediaRewind' || code === 227 || key === 'MediaFastForward' || code === 228) {
-      v = video()
-      if (v) {
-        var delta = (key === 'MediaRewind' || code === 227) ? -10 : 10
-        v.currentTime = Math.max(0, Math.min(v.duration || Infinity, v.currentTime + delta))
-        stop(e)
-      }
-      return
+    if (el.matches(PLAYER)) {
+      togglePlay()
+      return 'ok'
     }
-    // Menü-Taste -> Suche
-    if (key === 'ContextMenu' || code === 93 || code === 82) {
-      var search = document.querySelector('.searchInput input, input[type="search"]')
-      if (search) { focusEl(search); stop(e) }
-      return
-    }
+    el.click()
+    return 'ok'
+  }
 
-    var dir = DIRS[key] || DIRS[code]
+  // ---- Öffentliche Schnittstelle für Kotlin --------------------------------
+  window.__ftTv = {
+    key: function (name) {
+      addStyle()
+      var a = activeEl()
 
-    // ---- Vollbild-Video: alles an den Player durchreichen ----
-    if (document.fullscreenElement || document.webkitFullscreenElement) return
-
-    if (dir) {
-      // Video-Player fokussiert: Links/Rechts = spulen (FreeTube-Shortcut)
-      if (inPlayer(active) && (dir === 'left' || dir === 'right')) return
-
-      // Textfeld: Links/Rechts bewegen den Cursor, außer am Rand
-      if (isTextInput(active) && (dir === 'left' || dir === 'right')) {
-        var len = (active.value || '').length
-        var pos = active.selectionStart
-        if (pos !== null && pos !== undefined) {
-          if (dir === 'left' && pos > 0) return
-          if (dir === 'right' && pos < len) return
+      switch (name) {
+        case 'playpause': togglePlay(); return 'ok'
+        case 'play': { var v1 = video(); if (v1) v1.play(); return 'ok' }
+        case 'pause': { var v2 = video(); if (v2) v2.pause(); return 'ok' }
+        case 'rewind': seek(-10); return 'ok'
+        case 'forward': seek(10); return 'ok'
+        case 'menu': {
+          var search = document.querySelector('.searchInput input, input[type="search"]')
+          if (search) { focusEl(search); return 'input' }
+          return 'ok'
         }
       }
-      if (move(dir)) stop(e)
-      return
-    }
 
-    // ---- OK / Enter ----
-    if (key === 'Enter' || code === 13 || code === 23) {
-      if (!active || active === document.body) return
-      if (inPlayer(active) && active.matches(PLAYER)) {
-        v = video()
-        if (v) { if (v.paused) v.play(); else v.pause(); stop(e) }
-        return
+      // Vollbild-Video: Pfeile an den Player (spulen/Lautstärke), OK = Play/Pause
+      if (isFullscreen()) {
+        if (name === 'enter') togglePlay()
+        else synthKey(name)
+        return 'ok'
       }
-      if (isNativeActivatable(active)) return // Browser erledigt das selbst
-      stop(e)
-      active.click()
-    }
-  }, true)
 
+      if (name === 'enter') {
+        if (!a) { move('down'); return 'ok' }
+        return activate(a)
+      }
+
+      // Video-Player fokussiert: Links/Rechts spulen
+      if (inPlayer(a) && (name === 'left' || name === 'right')) {
+        synthKey(name)
+        return 'ok'
+      }
+
+      // Textfeld: Links/Rechts bewegen den Cursor, am Rand wird navigiert
+      if (isTextInput(a) && (name === 'left' || name === 'right') &&
+          typeof a.selectionStart === 'number') {
+        var pos = a.selectionStart
+        var len = (a.value || '').length
+        if (name === 'left' && pos > 0) { a.setSelectionRange(pos - 1, pos - 1); return 'ok' }
+        if (name === 'right' && pos < len) { a.setSelectionRange(pos + 1, pos + 1); return 'ok' }
+      }
+
+      move(name)
+      return 'ok'
+    },
+
+    back: function () {
+      if (isFullscreen()) {
+        var exit = document.exitFullscreen || document.webkitExitFullscreen
+        if (exit) exit.call(document)
+        return 'handled'
+      }
+      // Fokus in einem Textfeld: erst Feld verlassen
+      var a = activeEl()
+      if (isTextInput(a)) {
+        a.blur()
+        return 'handled'
+      }
+      return 'none'
+    }
+  }
+
+  addStyle()
   // Beim Start etwas sinnvolles fokussieren, damit die Fernbedienung sofort greift
   setTimeout(function () {
-    if (!document.activeElement || document.activeElement === document.body) {
+    if (!activeEl()) {
       var list = candidates()
       if (list.length) focusEl(firstInViewport(list))
     }

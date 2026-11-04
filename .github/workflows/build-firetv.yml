@@ -4,19 +4,18 @@ on:
   workflow_dispatch:
     inputs:
       upstream_ref:
-        description: "Branch/Tag/Commit von MarmadileManteater/FreeTubeAndroid"
+        description: "Upstream-Release-Tag (leer = neuestes Release, z. B. 0.25.3.1) oder Branch"
         required: false
-        default: "development"
+        default: ""
   push:
     branches: [ main ]
     tags: [ "v*" ]
 
 permissions:
-  contents: write   # für Releases bei Tags
+  contents: write   # für das Release am Ende
 
 env:
   UPSTREAM_REPO: MarmadileManteater/FreeTubeAndroid
-  UPSTREAM_REF: ${{ github.event.inputs.upstream_ref || 'development' }}
 
 jobs:
   build:
@@ -25,11 +24,32 @@ jobs:
       - name: Kit auschecken
         uses: actions/checkout@v4
 
+      - name: Upstream-Version bestimmen (neuestes Release-Tag)
+        id: ref
+        env:
+          INPUT_REF: ${{ github.event.inputs.upstream_ref }}
+        run: |
+          if [ -n "$INPUT_REF" ]; then
+            ref="$INPUT_REF"
+          else
+            # Release-Tags von FreeTube Android haben die Form 0.25.3.1
+            ref=$(git ls-remote --tags --refs "https://github.com/${UPSTREAM_REPO}.git" \
+                  | sed 's@.*refs/tags/@@' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' \
+                  | sort -V | tail -1)
+          fi
+          [ -n "$ref" ] || { echo "::error::Kein Upstream-Release-Tag gefunden"; exit 1; }
+          # Versionsnummer nur setzen, wenn ref wie eine Release-Version aussieht
+          if echo "$ref" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "version=$ref" >> "$GITHUB_OUTPUT"
+          fi
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+          echo "Upstream-Ref: \`$ref\`" >> "$GITHUB_STEP_SUMMARY"
+
       - name: FreeTube Android (Upstream) auschecken
         uses: actions/checkout@v4
         with:
           repository: ${{ env.UPSTREAM_REPO }}
-          ref: ${{ env.UPSTREAM_REF }}
+          ref: ${{ steps.ref.outputs.ref }}
           path: upstream
 
       - name: Upstream-Commit merken
@@ -57,7 +77,9 @@ jobs:
         run: pnpm run pack:android
 
       - name: Fire-TV-Patches anwenden
-        run: python3 firetv/apply-firetv.py upstream --build-number ${{ github.run_number }}
+        run: |
+          v="${{ steps.ref.outputs.version }}"
+          python3 firetv/apply-firetv.py upstream ${v:+--version "$v"}
 
       - name: Version auslesen
         id: ver
@@ -136,9 +158,10 @@ jobs:
       - name: GitHub-Release anlegen
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || format('v{0}', steps.ver.outputs.version) }}
+          # Tag pro Lauf eindeutig (Release = Upstream-Version + Kit-Build-Nummer)
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || format('v{0}-tv{1}', steps.ver.outputs.version, github.run_number) }}
           target_commitish: ${{ github.sha }}
-          name: FreeTube TV ${{ steps.ver.outputs.version }}
+          name: FreeTube TV ${{ steps.ver.outputs.version }} (Build ${{ github.run_number }})
           make_latest: "true"
           files: dist/*
           body: |

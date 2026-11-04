@@ -1,0 +1,106 @@
+  // ===== FIRETV-PATCH: Fernbedienung + Zurück/Beenden ======================
+  // Die Fire-TV-Fernbedienung wird hier NATIV abgefangen und an
+  // firetv-dpad.js (window.__ftTv) weitergereicht. Dadurch funktioniert die
+  // Steuerung auch dann, wenn die WebView nicht den Android-Fokus hat.
+
+  private val tvScript: String by lazy {
+    assets.open("firetv-dpad.js").bufferedReader().use { it.readText() }
+  }
+  private var tvLastExitPress = 0L
+
+  private fun tvKeyName(keyCode: Int): String? {
+    return when (keyCode) {
+      android.view.KeyEvent.KEYCODE_DPAD_UP -> "up"
+      android.view.KeyEvent.KEYCODE_DPAD_DOWN -> "down"
+      android.view.KeyEvent.KEYCODE_DPAD_LEFT -> "left"
+      android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> "right"
+      android.view.KeyEvent.KEYCODE_DPAD_CENTER,
+      android.view.KeyEvent.KEYCODE_ENTER,
+      android.view.KeyEvent.KEYCODE_NUMPAD_ENTER -> "enter"
+      android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> "playpause"
+      android.view.KeyEvent.KEYCODE_MEDIA_PLAY -> "play"
+      android.view.KeyEvent.KEYCODE_MEDIA_PAUSE -> "pause"
+      android.view.KeyEvent.KEYCODE_MEDIA_REWIND -> "rewind"
+      android.view.KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> "forward"
+      android.view.KeyEvent.KEYCODE_MENU -> "menu"
+      else -> null
+    }
+  }
+
+  override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
+    val name = tvKeyName(event.keyCode) ?: return super.dispatchKeyEvent(event)
+    if (event.action == android.view.KeyEvent.ACTION_DOWN) {
+      if (!webView.hasFocus()) {
+        webView.requestFocus()
+      }
+      tvSendKey(name, true)
+    }
+    // auch ACTION_UP verschlucken, damit die WebView nichts doppelt verarbeitet
+    return true
+  }
+
+  private fun tvSendKey(name: String, retry: Boolean) {
+    webView.evaluateJavascript("window.__ftTv ? window.__ftTv.key('$name') : 'missing'") { result ->
+      if (result == "\"missing\"") {
+        // Skript (noch) nicht in der Seite -> einspielen und Taste wiederholen
+        if (retry) {
+          webView.evaluateJavascript(tvScript) { _ -> tvSendKey(name, false) }
+        }
+      } else if (result == "\"input\"") {
+        tvShowKeyboard()
+      }
+    }
+  }
+
+  private fun tvShowKeyboard() {
+    webView.requestFocus()
+    val imm = getSystemService(android.content.Context.INPUT_METHOD_SERVICE)
+      as android.view.inputmethod.InputMethodManager
+    webView.postDelayed({
+      imm.showSoftInput(webView, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+    }, 150)
+  }
+
+  override fun onBack() {
+    // 1. Vollbild verlassen / Textfeld verlassen (im JS)
+    webView.evaluateJavascript("window.__ftTv ? window.__ftTv.back() : 'none'") { result ->
+      if (result != "\"handled\"") {
+        tvBackDefault()
+      }
+    }
+  }
+
+  private fun tvBackDefault() {
+    // 2. FreeTube-Dialog schließen
+    if (state.isInAPrompt) {
+      webView.dispatchEvent("exit-prompt")
+      webView.jsInterface.exitPromptMode()
+      return
+    }
+    // 3. Eine Seite zurück; wenn sich nichts tut, sind wir auf der Startseite
+    val before = webView.url
+    if (webView.canGoBack()) {
+      webView.goBack()
+      webView.postDelayed({
+        if (webView.url == before) {
+          tvAskExit()
+        }
+      }, 400)
+    } else {
+      tvAskExit()
+    }
+  }
+
+  private fun tvAskExit() {
+    // 4. Auf der Startseite: 2x Zurück innerhalb von 2,5 s = App beenden
+    val now = android.os.SystemClock.uptimeMillis()
+    if (now - tvLastExitPress < 2500) {
+      finishAndRemoveTask()
+    } else {
+      tvLastExitPress = now
+      android.widget.Toast.makeText(
+        this, "Zum Beenden nochmal Zurück drücken", android.widget.Toast.LENGTH_SHORT
+      ).show()
+    }
+  }
+  // ===== /FIRETV-PATCH ======================================================

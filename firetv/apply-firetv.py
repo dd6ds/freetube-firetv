@@ -4,15 +4,17 @@ Patcht einen Checkout von FreeTube Android (MarmadileManteater/FreeTubeAndroid)
 zu einer Fire-TV-tauglichen App.
 
 Aufruf:
-    python3 firetv/apply-firetv.py <pfad-zum-freetubeandroid-checkout> [--build-number N]
+    python3 firetv/apply-firetv.py <pfad-zum-freetubeandroid-checkout> [--version 0.25.3.1]
 
 Was geändert wird:
   1. minSdk 29 -> 28            (Fire OS 7 = Android 9 = API 28)
   2. Eigene App-ID io.freetubeapp.freetube.firetv, Name "FreeTube TV"
      (läuft parallel zu einer evtl. installierten FreeTube-Android-App)
   3. Manifest: LEANBACK_LAUNCHER, TV-Banner, kein Touchscreen nötig, largeHeap
-  4. D-Pad-Navigation (firetv-dpad.js) wird nach jedem Seitenaufbau injiziert
-  5. Zurück-Taste verlässt zuerst den Video-Vollbildmodus
+  4. Fernbedienung: Tasten werden in MainActivity.dispatchKeyEvent abgefangen
+     und an firetv-dpad.js (window.__ftTv) weitergereicht
+  5. Zurück: Vollbild verlassen -> Seite zurück -> auf der Startseite
+     2x Zurück = App wirklich beenden
 Das Skript ist idempotent (mehrfaches Ausführen schadet nicht).
 
 Wichtig: NACH `pnpm run pack:android` ausführen, weil webpack den
@@ -54,8 +56,8 @@ def must_sub(pattern, repl, text, flags=0):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("repo", type=Path)
-    ap.add_argument("--build-number", type=int, default=None,
-                    help="hängt -firetv-N an die Version an (für eindeutige versionCodes)")
+    ap.add_argument("--version", default=None,
+                    help="Versionsnummer setzen, z. B. 0.25.3.1 (= Upstream-Release-Tag)")
     args = ap.parse_args()
     repo = args.repo.resolve()
     app = repo / "android" / "app"
@@ -73,6 +75,15 @@ def main():
         return must_sub(r"minSdk\s*=\s*29", "minSdk = 28 // " + MARK + ": Fire OS 7 / Android 9", t)
     edit(app / "build.gradle.kts", p_gradle, "minSdk 28")
 
+    # versionCode +500: liegt sicher über allen früheren Kit-Builds (0.25.3-firetv-N),
+    # damit sich die neue Version ohne Deinstallation drüberinstallieren lässt
+    def p_vcode(t):
+        if "versionInfo.versionCode + 500" in t:
+            return t
+        return must_sub(r"versionCode = versionInfo\.versionCode\b",
+                        "versionCode = versionInfo.versionCode + 500 // " + MARK, t)
+    edit(app / "build.gradle.kts", p_vcode, "versionCode-Offset")
+
     # 2. App-ID / Name / Version ---------------------------------------------
     pkg_path = repo / "package.json"
     pkg = json.loads(pkg_path.read_text(encoding="utf-8"))
@@ -83,9 +94,10 @@ def main():
     if pkg.get("productName") != "FreeTube TV":
         pkg["productName"] = "FreeTube TV"
         changed = True
-    if args.build_number is not None and "-firetv-" not in pkg["version"]:
-        base = pkg["version"].split("-")[0]
-        pkg["version"] = f"{base}-firetv-{args.build_number}"
+    if args.version and pkg.get("version") != args.version:
+        if not re.fullmatch(r"\d+\.\d+\.\d+(\.\d+)?", args.version):
+            die(f"Ungültige Version '{args.version}' (erwartet z. B. 0.25.3.1)")
+        pkg["version"] = args.version
         changed = True
     if changed:
         pkg_path.write_text(json.dumps(pkg, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
@@ -142,28 +154,17 @@ def main():
         return t[:m.end()] + inject + t[m.end():]
     edit(kt / "webviews" / "FreeTubeWebView.kt", p_webview, "WebView: Fokus + D-Pad-Skript")
 
-    # 5. Zurück-Taste: erst Vollbild verlassen -------------------------------
-    def p_back(t):
+    # 5. Fernbedienung nativ abfangen + Zurück/Beenden -----------------------
+    tv_kotlin = (HERE / "MainActivityTv.kt.in").read_text(encoding="utf-8")
+
+    def p_activity(t):
         if MARK in t:
             return t
-        old = re.search(r"override fun onBack\(\) \{\n(.*?)\n  \}\n", t, re.S)
-        if not old:
+        m = re.search(r"  override fun onBack\(\) \{\n.*?\n  \}\n", t, re.S)
+        if not m:
             return None
-        body = old.group(1)
-        new = ("override fun onBack() {\n"
-               "    // " + MARK + ": Zurück-Taste verlässt zuerst den Video-Vollbildmodus\n"
-               "    webView.evaluateJavascript(\n"
-               "      \"(function(){var f=document.fullscreenElement||document.webkitFullscreenElement;\" +\n"
-               "      \"if(f){(document.exitFullscreen||document.webkitExitFullscreen).call(document);return true}return false})()\"\n"
-               "    ) { result ->\n"
-               "      if (result != \"true\") {\n"
-               "        onBackDefault()\n"
-               "      }\n"
-               "    }\n"
-               "  }\n\n"
-               "  private fun onBackDefault() {\n" + body + "\n  }\n")
-        return t[:old.start()] + new + t[old.end():]
-    edit(kt / "MainActivity.kt", p_back, "Zurück-Taste / Vollbild")
+        return t[:m.start()] + tv_kotlin + t[m.end():]
+    edit(kt / "MainActivity.kt", p_activity, "Fernbedienung (dispatchKeyEvent) + Zurück/Beenden")
 
     # 6. Dateien kopieren ----------------------------------------------------
     assets = src / "assets"

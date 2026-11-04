@@ -3,7 +3,7 @@
 Gilt für: **Fire TV Stick HD (AFTSS), Fire OS 7.7.x** – und alle anderen Fire-TV-Geräte
 mit Fire OS 7 oder 8 (Android 9/11). Nicht für Geräte mit Vega OS.
 
-Du brauchst die Datei `FreeTubeTV-<version>.apk`, z. B. `FreeTubeTV-0.25.3-firetv-1.apk` (aus dem GitHub-Build, siehe README).
+Du brauchst die Datei `FreeTubeTV-<version>.apk`, z. B. `FreeTubeTV-0.25.3.1.apk` (aus dem GitHub-Build, siehe README).
 
 ---
 
@@ -35,7 +35,7 @@ sudo dnf install android-tools        # Fedora/RHEL/Rocky
 # sudo apt install adb                # Debian/Ubuntu
 
 # mitgeliefertes Skript (verbindet, installiert, startet):
-./scripts/install-firetv.sh 192.168.1.50 FreeTubeTV-0.25.3-firetv-1.apk
+./scripts/install-firetv.sh 192.168.1.50 FreeTubeTV-0.25.3.1.apk
 ```
 
 Oder von Hand:
@@ -56,9 +56,8 @@ falls `unauthorized` angezeigt wurde.
 1. Im Amazon Appstore die App **Downloader** (von AFTVnews) suchen und installieren.
 2. In den Entwickleroptionen bei **Apps unbekannter Herkunft installieren** → **Downloader** → **EIN**.
 3. Downloader öffnen, ins URL-Feld die **direkte Download-Adresse der APK** eintippen, z. B.
-   `https://github.com/dd6ds/freetube-firetv/releases/latest/download/FreeTubeTV-0.25.3-firetv-1.apk`
-   (die genaue Adresse steht beim GitHub-Release; GitHub-*Artefakte* gehen hier **nicht**,
-   die brauchen einen Login – deshalb für diesen Weg ein Release per Tag anlegen, siehe README).
+   `https://github.com/dd6ds/freetube-firetv/releases/latest/download/FreeTubeTV-latest.apk`
+   (diese Adresse zeigt immer auf die neueste Version – jeder Build legt ein Release an).
    Tipp: Lange URLs mit einem Kurzlink-Dienst kürzen, dann ist das Tippen erträglich.
 4. Nach dem Download **Installieren** wählen, danach **Fertig** (oder **Öffnen**).
 5. Downloader bietet an, die APK zu löschen → **Löschen** (spart Speicher, der Stick hat nur 8 GB).
@@ -76,7 +75,7 @@ Startleiste → „Alle Apps"). Mit **Menü-Taste (≡) → Verschieben** kannst
 |---|---|
 | Pfeiltasten | Fokus (gelber Rahmen) zum nächsten Element bewegen |
 | OK | Anklicken / Video öffnen |
-| Zurück | Vollbild verlassen → vorherige Seite → App in den Hintergrund |
+| Zurück | Vollbild/Textfeld verlassen → vorherige Seite → auf der Startseite **2× Zurück = App beenden** |
 | ≡ Menü | Suchfeld fokussieren (Bildschirmtastatur öffnet sich mit OK) |
 | ⏯ Play/Pause | Video starten/anhalten |
 | ⏪ / ⏩ | 10 Sekunden zurück / vor |
