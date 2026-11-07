@@ -19,6 +19,7 @@ bedienbar ist.
 | Fernbedienung nativ in `MainActivity.dispatchKeyEvent` abgefangen | funktioniert unabhängig vom WebView-Fokus |
 | Automatisches Vollbild | Video startet beim Anklicken direkt im Vollbild (echte Fullscreen-API, sonst CSS-Vollbild) |
 | Zurück-Taste | Vollbild verlassen → Seitenverlauf → auf der Startseite 2× Zurück = App beenden (statt nur Hintergrund) |
+| Standard: Abo-Feeds über RSS | weniger Anfragen an YouTube → seltener IP-Sperren (in den Einstellungen abschaltbar) |
 | Upstream = neuestes Release-Tag (z. B. 0.25.3.1) | stabile Version statt Entwicklungszweig; Versionsnummer = Upstream-Release |
 | Eigene App-ID `io.freetubeapp.freetube.firetv`, Name „FreeTube TV" | kollidiert nicht mit einer normalen FreeTube-Android-Installation |
 
@@ -65,6 +66,7 @@ Mit Android SDK + JDK 17 + Node 22 + pnpm 10:
 
 ```bash
 git clone -b 0.25.3.1 https://github.com/MarmadileManteater/FreeTubeAndroid upstream
+python3 firetv/apply-firetv.py upstream --source-only           # VOR dem pack-Schritt!
 cd upstream && pnpm i && pnpm run pack:android && cd ..
 python3 firetv/apply-firetv.py upstream --version 0.25.3.1   # NACH dem pack-Schritt!
 cd upstream/android && ./gradlew assembleRelease

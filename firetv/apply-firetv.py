@@ -17,8 +17,10 @@ Was geändert wird:
      2x Zurück = App wirklich beenden
 Das Skript ist idempotent (mehrfaches Ausführen schadet nicht).
 
-Wichtig: NACH `pnpm run pack:android` ausführen, weil webpack den
-assets-Ordner neu schreibt.
+Reihenfolge:
+  1. apply-firetv.py <repo> --source-only   (VOR pack:android: Standard-Einstellungen)
+  2. pnpm run pack:android
+  3. apply-firetv.py <repo> --version X      (NACH pack:android: Android-Teil + Assets)
 """
 import argparse
 import json
@@ -56,6 +58,8 @@ def must_sub(pattern, repl, text, flags=0):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("repo", type=Path)
+    ap.add_argument("--source-only", action="store_true",
+                    help="nur Änderungen am Web-Quellcode (src/) – VOR `pnpm run pack:android` ausführen")
     ap.add_argument("--version", default=None,
                     help="Versionsnummer setzen, z. B. 0.25.3.1 (= Upstream-Release-Tag)")
     args = ap.parse_args()
@@ -67,6 +71,21 @@ def main():
         die(f"{repo} sieht nicht wie ein FreeTubeAndroid-Checkout aus")
 
     print("FreeTube → Fire TV Patch")
+
+    # 0. Standard-Einstellungen im Web-Quellcode --------------------------------
+    #    (wird beim Packen gebündelt, muss also VOR pack:android passieren)
+    settings_js = repo / "src" / "renderer" / "store" / "modules" / "settings.js"
+
+    def p_settings(t):
+        if "useRssFeeds: true" in t:
+            return t
+        # Abos per RSS laden: weniger Anfragen an YouTube -> weniger IP-Sperren
+        return must_sub(r"useRssFeeds: false,", "useRssFeeds: true, // " + MARK, t)
+    edit(settings_js, p_settings, "Standard: Abo-Feeds über RSS abrufen")
+
+    if args.source_only:
+        print("Fertig (nur Quellcode).")
+        return
 
     # 1. minSdk ---------------------------------------------------------------
     def p_gradle(t):

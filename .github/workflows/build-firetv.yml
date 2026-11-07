@@ -72,6 +72,9 @@ jobs:
         working-directory: upstream
         run: pnpm i --frozen-lockfile
 
+      - name: Fire-TV-Standardeinstellungen in den Quellcode (vor dem Packen)
+        run: python3 firetv/apply-firetv.py upstream --source-only
+
       - name: Web-Oberfläche für Android packen (webpack)
         working-directory: upstream
         run: pnpm run pack:android
